@@ -33,13 +33,17 @@ Caption
 
 
 
-Instale o Python e a biblioteca python-escpos no Raspberry Pi:
-bash
-Copiar
+Instale o Python e a biblioteca python-escpos
 
-sudo apt-get update
-sudo apt-get install python3-pip
-sudo pip3 install python-escpos
+pip install python-escpos
+
+Se for usar uma impressora via USB no Windows
+
+pip install pyusb
+
+Se for usar Serial (COM), instale:
+
+pip install pyserial
 
 
 # Abra o Prompt de Comando como administrador. DEFINIR IMPRESSORA COMO PADRÃO
