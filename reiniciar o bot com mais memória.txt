@@ -1,0 +1,1 @@
+pm2 restart chatbot.js --node-args="--max-old-space-size=5120"

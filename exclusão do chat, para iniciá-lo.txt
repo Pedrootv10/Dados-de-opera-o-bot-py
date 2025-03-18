@@ -1,0 +1,8 @@
+rmdir /s /q .wwebjs_auth
+taskkill /F /IM node.exe
+pm2 stop all
+pm2 delete all
+pm2 stop chatbot
+pm2 delete chatbot
+taskkill /F /IM chrome.exe
+taskkill /F /IM node.exe

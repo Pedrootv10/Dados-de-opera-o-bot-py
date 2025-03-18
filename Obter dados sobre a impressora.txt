@@ -1,0 +1,29 @@
+Obter nomes das impressoras
+
+wmic printer get name
+
+Abra o Prompt de Comando (CMD) como administrador.
+
+Execute o seguinte comando para listar as impressoras instaladas e seus detalhes:
+
+wmic printer list brief
+
+Para obter mais detalhes, você pode usar:
+
+wmic printer get name, portname, deviceid
+
+name: O nome da impressora.
+portname: O nome da porta (isso pode ser usado como um identificador adicional, por exemplo, uma porta USB).
+deviceid: O ID da impressora, que pode ser útil para identificar a impressora.
+
+Verificar no Gerenciador de Dispositivos:
+
+Abra o Gerenciador de Dispositivos do Windows.
+Vá até a seção Dispositivos de Impressão ou Controladores USB.
+Encontre a impressora Elgin i9 e clique com o botão direito sobre ela.
+Selecione Propriedades e depois a aba Detalhes.
+No menu suspenso, selecione Caminho da Instalação ou ID do Hardware. O VID e PID da impressora estarão lá.
+
+Execute o seguinte comando para listar os dispositivos USB:
+
+wmic path Win32_PnPEntity where "Description like 'USB%'" get Caption, DeviceID

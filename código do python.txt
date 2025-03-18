@@ -1,0 +1,242 @@
+import requests
+import json
+from reportlab.lib.pagesizes import inch
+from reportlab.pdfgen import canvas
+import os
+import time
+import logging
+import win32print
+import win32api
+import escpos
+from escpos.printer import Usb
+from datetime import datetime
+from PyPDF2 import PdfReader  # Adicionando a biblioteca para ler PDFs
+
+# Caminho do arquivo de log
+log_file = 'printus.log'
+
+# Função para excluir o arquivo de log a cada 24 horas
+def clear_log_file():
+    current_day = datetime.now().day
+
+    # Verifica se o arquivo de log existe
+    if os.path.exists(log_file):
+        # Obtém a data de modificação do arquivo de log
+        file_mod_time = os.path.getmtime(log_file)
+        file_mod_day = datetime.fromtimestamp(file_mod_time).day
+        
+        # Se for um novo dia, exclui o arquivo de log
+        if current_day != file_mod_day:
+            os.remove(log_file)
+            print(f'O arquivo {log_file} foi excluído.')
+
+# Função para excluir arquivos PDF antigos
+def clear_old_pdfs(days=7):
+    current_time = time.time()
+    for file in os.listdir():
+        if file.endswith(".pdf"):
+            file_path = os.path.join(os.getcwd(), file)
+            file_mod_time = os.path.getmtime(file_path)
+            if (current_time - file_mod_time) / (60 * 60 * 24) > days:
+                os.remove(file_path)
+                logging.info(f'O arquivo PDF {file} foi excluído por ser antigo.')
+
+# Configuração do logging
+logging.basicConfig(filename=log_file, level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Configuração da API do WooCommerce
+woo_config = {
+    'url': 'https://vovolaurapizzaria.online/wp-json/wc/v3/orders',
+    'consumer_key': 'ck_6669686882ce72dd852055cc87799cda62e7b7d6',
+    'consumer_secret': 'cs_c5c3c9410d2636963463b6a26f1a583a3a33becd'
+}
+
+printed_orders_file = 'printed_orders.json'
+if os.path.exists(printed_orders_file):
+    with open(printed_orders_file, 'r') as f:
+        printed_orders = json.load(f)
+else:
+    printed_orders = []
+
+def wrap_text(text, max_width, c):
+    words = text.split()
+    lines = []
+    current_line = ""
+    
+    for word in words:
+        # Verifica se o próximo word cabe na linha
+        if c.stringWidth(current_line + " " + word, 'Helvetica', 11) < max_width:  # Alteração na largura da fonte
+            current_line += " " + word if current_line else word
+        else:
+            lines.append(current_line)
+            current_line = word
+    
+    if current_line:
+        lines.append(current_line)
+    
+    return lines
+
+def fetch_orders():
+    try:
+        logging.info('Verificando novos pedidos...')
+
+        # Limpar o arquivo de log se necessário
+        clear_log_file()
+
+        # Limpar PDFs antigos
+        clear_old_pdfs()
+
+        response = requests.get(woo_config['url'], auth=(woo_config['consumer_key'], woo_config['consumer_secret']), params={'per_page': 10, 'status': 'processing'})
+        orders = response.json()
+        for order in orders:
+            if order['id'] not in printed_orders:
+                file_path = generate_pdf(order)
+                printed_orders.append(order['id'])
+                with open(printed_orders_file, 'w') as f:
+                    json.dump(printed_orders, f)
+                print_order(file_path)
+    except Exception as e:
+        logging.error(f'Erro ao buscar pedidos: {e}', exc_info=True)
+
+    time.sleep(30)
+    fetch_orders()
+
+def generate_pdf(order):
+    try:
+        # Criar a pasta "pedidos" se não existir
+        if not os.path.exists('pedidos'):
+            os.makedirs('pedidos')
+
+        file_path = os.path.join('pedidos', f'pedido_{order["id"]}.pdf')
+        c = canvas.Canvas(file_path, pagesize=(3.32 * inch, 5.1 * inch))  # Largura reduzida em 70%
+        width, height = (3.32 * inch, 5.1 * inch)  # Largura reduzida em 70%
+        y_position = height - 20
+        
+        c.setFont('Helvetica', 13)  # Fonte aumentada em 60%
+        c.drawString(10, y_position, f'Pedido #{order["id"]}')
+        y_position -= 15
+        
+        c.setFont('Helvetica', 11)  # Fonte aumentada em 60%
+        c.drawString(10, y_position, f'Nome: {order["billing"]["first_name"]} {order["billing"]["last_name"]}')
+        y_position -= 15
+        c.drawString(10, y_position, f'Endereço: {order["billing"]["address_1"]}')
+        y_position -= 15
+        # Adicionando o billing_address_2 em uma linha separada
+        c.drawString(10, y_position, f'Bairro: {order["billing"].get("address_2", "")}')
+        y_position -= 15
+        c.drawString(10, y_position, f'Troco pra quantos?: {order["billing"]["city"]}')
+        y_position -= 30
+        c.drawString(10, y_position, f'Telefone: {order["billing"]["phone"]}')
+        y_position -= 15
+        c.drawString(10, y_position, f'Pagamento: {order["payment_method_title"]}')
+        y_position -= 15
+        
+        # Obtendo a billing note e quebrando o texto de forma similar aos itens
+        billing_note = next((meta.get('value', 'Não fornecida') for meta in order.get('meta_data', []) if meta.get('key') == 'billing_note'), '')
+        lines = wrap_text(f'Nota do cliente: {billing_note}', width - 20, c)
+        for line in lines:
+            c.drawString(10, y_position, line)
+            y_position -= 10
+        
+        if order["billing"].get("company", ""):
+            c.drawString(10, y_position, f'Sua pizza é mista?: {order["billing"]["company"]}')
+            y_position -= 10
+        
+        c.drawString(10, y_position, 'Itens do Pedido:')
+        y_position -= 20
+        
+        max_width = width - 20
+        for item in order['line_items']:
+            lines = wrap_text(f'{item["quantity"]}x {item["name"]} - R$ {item["total"]}', max_width, c)
+            for line in lines:
+                c.drawString(10, y_position, line)
+                y_position -= 12
+            y_position -= 5
+        
+        c.drawString(10, y_position, f'Total: R$ {order["total"]}')
+        
+        if 'customer_note' in order and order['customer_note']:
+            y_position -= 20
+            c.drawString(10, y_position, f'Resposta do Cliente: {order["customer_note"]}')
+        
+        c.showPage()
+        c.save()
+
+        # Gerar o texto simples para impressão térmica
+        text = convert_pdf_to_text(file_path)
+        
+        # Salvar o texto na pasta "pedidos"
+        save_text_to_file(file_path.replace('.pdf', '.txt'), text)
+        
+        return file_path
+    except Exception as e:
+        logging.error(f'Erro ao gerar PDF para o pedido #{order["id"]}: {e}', exc_info=True)
+
+def convert_pdf_to_text(pdf_path):
+    try:
+        # Lê o PDF e converte o conteúdo em texto simples
+        reader = PdfReader(pdf_path)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text()
+        return text
+    except Exception as e:
+        logging.error(f'Erro ao converter PDF para texto: {e}', exc_info=True)
+        return ""
+
+def save_text_to_file(file_path, text):
+    try:
+        with open(file_path, 'w') as file:
+            file.write(text)
+    except Exception as e:
+        logging.error(f'Erro ao salvar o texto em arquivo: {e}', exc_info=True)
+
+def print_order(file_path):
+    retries = 3  # Número de tentativas
+    try:
+        printers = [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+        physical_printers = [printer for printer in printers if win32print.GetPrinter(printer, 2)['Attributes'] & win32print.PRINTER_ATTRIBUTE_LOCAL]
+        
+        if not physical_printers:
+            logging.error('Impressora física não detectada.')
+            return
+        
+        for printer_name in physical_printers:
+            success = False
+            attempt = 0
+
+            while attempt < retries and not success:
+                try:
+                    # Tenta o método tradicional de impressão usando o ShellExecute
+                    logging.info(f"Tentando imprimir no {printer_name} - tentativa {attempt + 1}")
+                    win32api.ShellExecute(0, "print", file_path, f'/d:"{printer_name}"', ".", 0)
+                    # Imprime uma segunda cópia
+                    win32api.ShellExecute(0, "print", file_path, f'/d:"{printer_name}"', ".", 0)
+                    success = True  # Se a impressão for bem-sucedida, interrompe as tentativas
+                    logging.info(f'Impressão enviada para a impressora {printer_name}.')
+                except Exception as e:
+                    logging.error(f'Erro ao tentar imprimir na impressora {printer_name}, tentativa {attempt + 1}: {e}', exc_info=True)
+                    attempt += 1
+                    if attempt == retries:
+                        logging.error(f'Falha ao imprimir após {retries} tentativas.')
+
+            if not success:
+                # Se o ShellExecute falhou, tenta usar a impressão via USB (escpos)
+                try:
+                    logging.info(f'Tentando imprimir via USB (escpos) para a impressora {printer_name}.')
+                    printer = Usb(0x04b8, 0x0202)  # Substitua com os IDs corretos da sua impressora
+                    printer.setStyles({'text': {'align': 'left'}})  # Corrigido: Removido o espaço extra
+                    with open(file_path.replace('.pdf', '.txt'), 'r') as file:
+                        # Imprime uma segunda cópia
+                        printer.text(file.read())  # Envia o arquivo de texto para a impressora térmica
+                        printer.text(file.read())  # Envia novamente para imprimir a segunda cópia
+                except Exception as e:
+                    logging.error(f'Erro ao tentar imprimir via USB para a impressora {printer_name}: {e}', exc_info=True)
+    except Exception as e:
+        logging.error(f'Erro na função print_order: {e}', exc_info=True)
+
+if __name__ == '__main__':
+    try:
+        fetch_orders()
+    except Exception as e:
+        logging.erro
