@@ -27,3 +27,16 @@ No menu suspenso, selecione Caminho da Instalação ou ID do Hardware. O VID e P
 Execute o seguinte comando para listar os dispositivos USB:
 
 wmic path Win32_PnPEntity where "Description like 'USB%'" get Caption, DeviceID
+
+wmic path Win32_PnPEntity get Caption, DeviceID
+Caption   
+
+
+
+Instale o Python e a biblioteca python-escpos no Raspberry Pi:
+bash
+Copiar
+
+sudo apt-get update
+sudo apt-get install python3-pip
+sudo pip3 install python-escpos
