@@ -1,0 +1,5 @@
+pip install requests
+pip install reportlab
+pip install pywin32
+pip install escpos
+pip install pypdf2

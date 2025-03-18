@@ -1,0 +1,22 @@
+Dependências necessárias do código do chatbot
+
+npm install whatsapp-web.js
+npm install qrcode-terminal
+
+PARA USAR O PM2
+
+npm install -g pm2
+
+PARA INICIAR O BOT
+
+pm2 start "bot.js" --name "meu-bot"
+
+pm2 save
+
+Para reiniciar automaticamente configure no agendador de tarefas um arquivo .bat.
+
+#
+
+npm install puppeteer
+
+
